@@ -37,8 +37,9 @@ function ode_shootout(args...; kwargs...)
     ShootOut(args...; kwargs...)
 end
 
-function Shootout(prob, setups; appxsol = nothing, names = nothing, error_estimate = :final,
-                  numruns = 20, seconds = 2, kwargs...)
+function Shootout(
+        prob, setups; appxsol = nothing, names = nothing, error_estimate = :final,
+        numruns = 20, seconds = 2, kwargs...)
     N = length(setups)
     @assert names === nothing || length(setups) == length(names)
     errors = Vector{Float64}(undef, N)
@@ -53,7 +54,7 @@ function Shootout(prob, setups; appxsol = nothing, names = nothing, error_estima
     end
     for i in eachindex(setups)
         sol = solve(prob, setups[i][:alg]; timeseries_errors = timeseries_errors,
-                    dense_errors = dense_errors, kwargs..., setups[i]...)
+            dense_errors = dense_errors, kwargs..., setups[i]...)
 
         if :prob_choice ∈ keys(setups[i])
             cur_appxsol = appxsol[setups[i][:prob_choice]]
@@ -82,8 +83,8 @@ function Shootout(prob, setups; appxsol = nothing, names = nothing, error_estima
 
         benchmark_f = let _prob = _prob, alg = setups[i][:alg], sol = sol, kwargs = kwargs
             () -> @elapsed solve(_prob, alg, sol.u, sol.t, sol.k;
-                                 timeseries_errors = false,
-                                 dense_errors = false, kwargs...)
+                timeseries_errors = false,
+                dense_errors = false, kwargs...)
         end
         benchmark_f() # pre-compile
 
@@ -102,7 +103,7 @@ function Shootout(prob, setups; appxsol = nothing, names = nothing, error_estima
     bestidx = findall((y) -> y == maximum(effs), effs)[1]
     winner = names[bestidx]
     return Shootout(setups, times, errors, effs, effratios, solutions, names, N, bestidx,
-                    winner)
+        winner)
 end
 
 function ode_shootoutset(args...; kwargs...)
@@ -111,7 +112,7 @@ function ode_shootoutset(args...; kwargs...)
 end
 
 function ShootoutSet(probs, setups; probaux = nothing,
-                     names = nothing, print_names = false, kwargs...)
+        names = nothing, print_names = false, kwargs...)
     N = length(probs)
     @assert names === nothing || length(setups) == length(names)
     shootouts = Vector{Shootout}(undef, N)
@@ -161,7 +162,10 @@ mutable struct WorkPrecision
     reltols::Any
     errors::Any
     times::Any
+    dts::Any
+    stats::Any
     name::Any
+    error_estimate::Any
     N::Int
 end
 
@@ -178,108 +182,12 @@ mutable struct WorkPrecisionSet
 end
 
 function WorkPrecision(prob, alg, abstols, reltols, dts = nothing;
-                       name = nothing, appxsol = nothing, error_estimate = :final,
-                       numruns = 20, seconds = 2, kwargs...)
+        name = nothing, appxsol = nothing, error_estimate = :final,
+        numruns = 20, seconds = 2, kwargs...)
     N = length(abstols)
-    errors = Vector{Float64}(undef, N)
+    errors = Vector{Dict{Symbol, Float64}}(undef, N)
     times = Vector{Float64}(undef, N)
-    if name === nothing
-        name = "WP-Alg"
-    end
-
-    if haskey(kwargs, :prob_choice)
-        _prob = prob[kwargs[:prob_choice]]
-    elseif prob isa AbstractArray
-        _prob = prob[1]
-    else
-        _prob = prob
-    end
-
-    let _prob = _prob
-        timeseries_errors = error_estimate ∈ TIMESERIES_ERRORS
-        dense_errors = error_estimate ∈ DENSE_ERRORS
-        for i in 1:N
-            if dts === nothing
-                sol = solve(_prob, alg; kwargs..., abstol = abstols[i],
-                            reltol = reltols[i], timeseries_errors = timeseries_errors,
-                            dense_errors = dense_errors)
-            else
-                sol = solve(_prob, alg; kwargs..., abstol = abstols[i],
-                            reltol = reltols[i], dt = dts[i],
-                            timeseries_errors = timeseries_errors,
-                            dense_errors = dense_errors)
-            end
-
-            if haskey(kwargs, :prob_choice)
-                cur_appxsol = appxsol[kwargs[:prob_choice]]
-            elseif prob isa AbstractArray
-                cur_appxsol = appxsol[1]
-            else
-                cur_appxsol = appxsol
-            end
-
-            if cur_appxsol !== nothing
-                errsol = appxtrue(sol, cur_appxsol)
-                errors[i] = mean(errsol.errors[error_estimate])
-            else
-                errors[i] = mean(sol.errors[error_estimate])
-            end
-
-            benchmark_f = let dts = dts, _prob = _prob, alg = alg, sol = sol,
-                abstols = abstols, reltols = reltols, kwargs = kwargs
-
-                if dts === nothing
-                    if _prob isa DAEProblem
-                        () -> @elapsed solve(_prob, alg, sol.u, sol.t;
-                                             abstol = abstols[i],
-                                             reltol = reltols[i],
-                                             timeseries_errors = false,
-                                             dense_errors = false, kwargs...)
-                    else
-                        () -> @elapsed solve(_prob, alg, sol.u, sol.t, sol.k;
-                                             abstol = abstols[i],
-                                             reltol = reltols[i],
-                                             timeseries_errors = false,
-                                             dense_errors = false, kwargs...)
-                    end
-                else
-                    if _prob isa DAEProblem
-                        () -> @elapsed solve(_prob, alg, sol.u, sol.t;
-                                             abstol = abstols[i],
-                                             reltol = reltols[i],
-                                             dt = dts[i],
-                                             timeseries_errors = false,
-                                             dense_errors = false, kwargs...)
-                    else
-                        () -> @elapsed solve(_prob, alg, sol.u, sol.t, sol.k;
-                                             abstol = abstols[i],
-                                             reltol = reltols[i],
-                                             dt = dts[i],
-                                             timeseries_errors = false,
-                                             dense_errors = false, kwargs...)
-                    end
-                end
-            end
-            benchmark_f() # pre-compile
-
-            b_t = benchmark_f()
-            if b_t > seconds
-                times[i] = b_t
-            else
-                times[i] = mapreduce(i -> benchmark_f(), min, 2:numruns; init = b_t)
-            end
-        end
-    end
-    return WorkPrecision(prob, abstols, reltols, errors, times, name, N)
-end
-
-# Work precision information for a BVP
-function WorkPrecision(prob::AbstractBVProblem, alg, abstols, reltols, dts = nothing;
-    name = nothing, appxsol = nothing, error_estimate = :final,
-    numruns = 20, seconds = 2, kwargs...)
-    N = length(abstols)
-    errors = Vector{Float64}(undef, N)
-    times = Vector{Float64}(undef, N)
+    stats = Vector{Any}(undef, N)
     if name === nothing
         name = "WP-Alg"
     end
@@ -301,80 +209,212 @@ function WorkPrecision(prob::AbstractBVProblem, alg, abstols, reltols, dts = not
                     reltol = reltols[i], timeseries_errors = timeseries_errors,
                     dense_errors = dense_errors)
             else
-                sol = DiffEqBase.solve(_prob, alg; kwargs..., abstol = abstols[i],
+                sol = solve(_prob, alg; kwargs..., abstol = abstols[i],
                     reltol = reltols[i], dt = dts[i],
                     timeseries_errors = timeseries_errors,
                     dense_errors = dense_errors)
             end
 
-            if haskey(kwargs, :prob_choice)
-                cur_appxsol = appxsol[kwargs[:prob_choice]]
-            elseif prob isa AbstractArray
-                cur_appxsol = appxsol[1]
-            else
-                cur_appxsol = appxsol
-            end
+            stats[i] = sol.stats
 
-            if cur_appxsol !== nothing
-                errsol = appxtrue(sol, cur_appxsol)
-                errors[i] = mean(errsol.errors[error_estimate])
-            else
-                errors[i] = mean(sol.errors[error_estimate])
-            end
+            if SciMLBase.successful_retcode(sol)
+                if haskey(kwargs, :prob_choice)
+                    cur_appxsol = appxsol[kwargs[:prob_choice]]
+                elseif prob isa AbstractArray
+                    cur_appxsol = appxsol[1]
+                else
+                    cur_appxsol = appxsol
+                end
 
-            benchmark_f = let dts = dts, _prob = _prob, alg = alg, sol = sol,
-                abstols = abstols, reltols = reltols, kwargs = kwargs
-
-                if dts === nothing
-                    if _prob isa DAEProblem
-                        () -> @elapsed solve(_prob, alg;
-                            abstol = abstols[i],
-                            reltol = reltols[i],
-                            timeseries_errors = false,
-                            dense_errors = false, kwargs...)
-                    else
-                        () -> @elapsed solve(_prob, alg;
-                            abstol = abstols[i],
-                            reltol = reltols[i],
-                            timeseries_errors = false,
-                            dense_errors = false, kwargs...)
+                if cur_appxsol !== nothing
+                    errsol = appxtrue(sol, cur_appxsol)
+                    errors[i] = Dict{Symbol, Float64}()
+                    for err in keys(errsol.errors)
+                        errors[i][err] = mean(errsol.errors[err])
                     end
                 else
-                    if _prob isa DAEProblem
-                        () -> @elapsed solve(_prob, alg;
-                            abstol = abstols[i],
-                            reltol = reltols[i],
-                            dt = dts[i],
-                            timeseries_errors = false,
-                            dense_errors = false, kwargs...)
-                    else
-                        () -> @elapsed solve(_prob, alg;
-                            abstol = abstols[i],
-                            reltol = reltols[i],
-                            dt = dts[i],
-                            timeseries_errors = false,
-                            dense_errors = false, kwargs...)
+                    errors[i] = Dict{Symbol, Float64}()
+                    for err in keys(sol.errors)
+                        errors[i][err] = mean(sol.errors[err])
                     end
                 end
-            end
-            benchmark_f() # pre-compile
 
-            b_t = benchmark_f()
-            if b_t > seconds
-                times[i] = b_t
+                benchmark_f = let dts = dts, _prob = _prob, alg = alg, sol = sol,
+                    abstols = abstols, reltols = reltols, kwargs = kwargs
+
+                    if dts === nothing
+                        if _prob isa DAEProblem
+                            () -> @elapsed solve(_prob, alg, sol.u, sol.t;
+                                abstol = abstols[i],
+                                reltol = reltols[i],
+                                timeseries_errors = false,
+                                dense_errors = false, kwargs...)
+                        else
+                            () -> @elapsed solve(_prob, alg, sol.u, sol.t, sol.k;
+                                abstol = abstols[i],
+                                reltol = reltols[i],
+                                timeseries_errors = false,
+                                dense_errors = false, kwargs...)
+                        end
+                    else
+                        if _prob isa DAEProblem
+                            () -> @elapsed solve(_prob, alg, sol.u, sol.t;
+                                abstol = abstols[i],
+                                reltol = reltols[i],
+                                dt = dts[i],
+                                timeseries_errors = false,
+                                dense_errors = false, kwargs...)
+                        else
+                            () -> @elapsed solve(_prob, alg, sol.u, sol.t, sol.k;
+                                abstol = abstols[i],
+                                reltol = reltols[i],
+                                dt = dts[i],
+                                timeseries_errors = false,
+                                dense_errors = false, kwargs...)
+                        end
+                    end
+                end
+                benchmark_f() # pre-compile
+
+                b_t = benchmark_f()
+                if b_t > seconds
+                    times[i] = b_t
+                else
+                    times[i] = mapreduce(i -> benchmark_f(), min, 2:numruns; init = b_t)
+                end
             else
-                times[i] = mapreduce(i -> benchmark_f(), min, 2:numruns; init = b_t)
+                # Unsuccessful retcode, give NaN time
+                errors[i] = Dict(
+                    :l∞ => NaN, :L2 => NaN, :final => NaN, :l2 => NaN, :L∞ => NaN)
+                times[i] = NaN
             end
         end
     end
-    return WorkPrecision(prob, abstols, reltols, errors, times, name, N)
+    return WorkPrecision(prob, abstols, reltols, StructArray(NamedTuple.(errors)),
+        times, dts, stats, name, error_estimate, N)
+end
+
+# Work precision information for a BVP
+function WorkPrecision(prob::AbstractBVProblem, alg, abstols, reltols, dts = nothing;
+        name = nothing, appxsol = nothing, error_estimate = :final,
+        numruns = 20, seconds = 2, kwargs...)
+    N = length(abstols)
+    errors = Vector{Dict{Symbol, Float64}}(undef, N)
+    times = Vector{Float64}(undef, N)
+    stats = Vector{Any}(undef, N)
+    if name === nothing
+        name = "WP-Alg"
+    end
+
+    if haskey(kwargs, :prob_choice)
+        _prob = prob[kwargs[:prob_choice]]
+    elseif prob isa AbstractArray
+        _prob = prob[1]
+    else
+        _prob = prob
+    end
+
+    let _prob = _prob
+        timeseries_errors = error_estimate ∈ TIMESERIES_ERRORS
+        dense_errors = error_estimate ∈ DENSE_ERRORS
+        for i in 1:N
+            if dts === nothing
+                sol = solve(_prob, alg; kwargs..., abstol = abstols[i],
+                    reltol = reltols[i], timeseries_errors = timeseries_errors,
+                    dense_errors = dense_errors)
+            else
+                sol = solve(_prob, alg; kwargs..., abstol = abstols[i],
+                    reltol = reltols[i], dt = dts[i],
+                    timeseries_errors = timeseries_errors,
+                    dense_errors = dense_errors)
+            end
+
+            stats[i] = sol.stats
+            if SciMLBase.successful_retcode(sol)
+                if haskey(kwargs, :prob_choice)
+                    cur_appxsol = appxsol[kwargs[:prob_choice]]
+                elseif prob isa AbstractArray
+                    cur_appxsol = appxsol[1]
+                else
+                    cur_appxsol = appxsol
+                end
+
+                if cur_appxsol !== nothing
+                    errsol = appxtrue(sol, cur_appxsol)
+                    errors[i] = Dict{Symbol, Float64}()
+                    for err in keys(errsol.errors)
+                        errors[i][err] = mean(errsol.errors[err])
+                    end
+                else
+                    errors[i] = Dict{Symbol, Float64}()
+                    for err in keys(errsol.errors)
+                        errors[i][err] = mean(errsol.errors[err])
+                    end
+                end
+
+                benchmark_f = let dts = dts, _prob = _prob, alg = alg, sol = sol,
+                    abstols = abstols, reltols = reltols, kwargs = kwargs
+
+                    if dts === nothing
+                        if _prob isa DAEProblem
+                            () -> @elapsed solve(_prob, alg;
+                                abstol = abstols[i],
+                                reltol = reltols[i],
+                                timeseries_errors = false,
+                                dense_errors = false, kwargs...)
+                        else
+                            () -> @elapsed solve(_prob, alg;
+                                abstol = abstols[i],
+                                reltol = reltols[i],
+                                timeseries_errors = false,
+                                dense_errors = false, kwargs...)
+                        end
+                    else
+                        if _prob isa DAEProblem
+                            () -> @elapsed solve(_prob, alg;
+                                abstol = abstols[i],
+                                reltol = reltols[i],
+                                dt = dts[i],
+                                timeseries_errors = false,
+                                dense_errors = false, kwargs...)
+                        else
+                            () -> @elapsed solve(_prob, alg;
+                                abstol = abstols[i],
+                                reltol = reltols[i],
+                                dt = dts[i],
+                                timeseries_errors = false,
+                                dense_errors = false, kwargs...)
+                        end
+                    end
+                end
+                benchmark_f() # pre-compile
+
+                b_t = benchmark_f()
+                if b_t > seconds
+                    times[i] = b_t
+                else
+                    times[i] = mapreduce(i -> benchmark_f(), min, 2:numruns; init = b_t)
+                end
+            else
+                # Unsuccessful retcode, give NaN error and time
+                errors[i] = Dict(
+                    :l∞ => NaN, :L2 => NaN, :final => NaN, :l2 => NaN, :L∞ => NaN)
+                times[i] = NaN
+            end
+        end
+    end
+    return WorkPrecision(prob, abstols, reltols, StructArray(NamedTuple.(errors)),
+        times, dts, stats, name, error_estimate, N)
 end
 
 # Work precision information for a nonlinear problem.
-function WorkPrecision(prob::NonlinearProblem, alg, abstols, reltols, dts = nothing; name = nothing, appxsol = nothing, error_estimate = :l2, numruns = 20, seconds = 2, kwargs...)
+function WorkPrecision(
+        prob::NonlinearProblem, alg, abstols, reltols, dts = nothing; name = nothing,
+        appxsol = nothing, error_estimate = :l2, numruns = 20, seconds = 2, kwargs...)
     N = length(abstols)
-    errors = Vector{Float64}(undef, N)
+    errors = Vector{Dict{Symbol, Float64}}(undef, N)
     times = Vector{Float64}(undef, N)
+    stats = Vector{Any}(undef, N)
     if name === nothing
         name = "WP-Alg"
     end
@@ -391,12 +431,13 @@ function WorkPrecision(prob::NonlinearProblem, alg, abstols, reltols, dts = noth
         for i in 1:N
             sol = solve(_prob, alg; kwargs..., abstol = abstols[i], reltol = reltols[i])
 
+            stats[i] = sol.stats
+
+            err = appxsol === nothing ? sol.resid : (sol .- appxsol)
             if error_estimate == :l2
-                if isnothing(appxsol)
-                    errors[i] = sqrt(sum(abs2, sol.resid))                    
-                else
-                    errors[i] = sqrt(sum(abs2, sol .- appxsol))
-                end
+                errors[i] = Dict(error_estimate => norm(err, 2))
+            elseif error_estimate == :l∞ || error_estimate == :linf
+                errors[i] = Dict(error_estimate => norm(err, Inf))
             else
                 error("Unsupported norm used: $(error_estimate).")
             end
@@ -405,9 +446,9 @@ function WorkPrecision(prob::NonlinearProblem, alg, abstols, reltols, dts = noth
                 abstols = abstols, reltols = reltols, kwargs = kwargs
 
                 () -> @elapsed solve(_prob, alg;
-                                            abstol = abstols[i],
-                                            reltol = reltols[i],
-                                            kwargs...)
+                    abstol = abstols[i],
+                    reltol = reltols[i],
+                    kwargs...)
             end
             benchmark_f() # pre-compile
 
@@ -419,14 +460,16 @@ function WorkPrecision(prob::NonlinearProblem, alg, abstols, reltols, dts = noth
             end
         end
     end
-    return WorkPrecision(prob, abstols, reltols, errors, times, name, N)
+
+    return WorkPrecision(prob, abstols, reltols, StructArray(NamedTuple.(errors)),
+        times, dts, stats, name, error_estimate, N)
 end
 
 function WorkPrecisionSet(prob,
-                          abstols, reltols, setups;
-                          print_names = false, names = nothing, appxsol = nothing,
-                          error_estimate = :final,
-                          test_dt = nothing, kwargs...)
+        abstols, reltols, setups;
+        print_names = false, names = nothing, appxsol = nothing,
+        error_estimate = :final,
+        test_dt = nothing, kwargs...)
     N = length(setups)
     @assert names === nothing || length(setups) == length(names)
     wps = Vector{WorkPrecision}(undef, N)
@@ -441,12 +484,12 @@ function WorkPrecisionSet(prob,
         filtered_setup = filter(p -> p.first in DiffEqBase.allowedkeywords, setups[i])
 
         wps[i] = WorkPrecision(prob, setups[i][:alg], _abstols, _reltols, _dts;
-                               appxsol = appxsol,
-                               error_estimate = error_estimate,
-                               name = names[i], kwargs..., filtered_setup...)
+            appxsol = appxsol,
+            error_estimate = error_estimate,
+            name = names[i], kwargs..., filtered_setup...)
     end
     return WorkPrecisionSet(wps, N, abstols, reltols, prob, setups, names, error_estimate,
-                            nothing)
+        nothing)
 end
 
 @def error_calculation begin
@@ -472,10 +515,10 @@ end
     filtered_setup = filter(p -> p.first in DiffEqBase.allowedkeywords, setups[1])
 
     sol = solve(_prob, setups[1][:alg];
-                kwargs..., filtered_setup..., abstol = _abstols[1],
-                reltol = _reltols[1], dt = _dts[1],
-                timeseries_errors = false,
-                dense_errors = false)
+        kwargs..., filtered_setup..., abstol = _abstols[1],
+        reltol = _reltols[1], dt = _dts[1],
+        timeseries_errors = false,
+        dense_errors = false)
 
     for j in 1:M, k in 1:N
         _abstols = get(setups[k], :abstols, abstols)
@@ -484,21 +527,21 @@ end
         filtered_setup = filter(p -> p.first in DiffEqBase.allowedkeywords, setups[k])
 
         sol = solve(_prob, setups[k][:alg];
-                    kwargs..., filtered_setup..., abstol = _abstols[j],
-                    reltol = _reltols[j], dt = _dts[j],
-                    timeseries_errors = timeseries_errors,
-                    dense_errors = dense_errors)
+            kwargs..., filtered_setup..., abstol = _abstols[j],
+            reltol = _reltols[j], dt = _dts[j],
+            timeseries_errors = timeseries_errors,
+            dense_errors = dense_errors)
         DiffEqBase.has_analytic(prob.f) ? err_sol = sol : err_sol = appxtrue(sol, true_sol)
         tmp_solutions[i, j, k] = err_sol
     end
 end
 
 function WorkPrecisionSet(prob::AbstractRODEProblem, abstols, reltols, setups,
-                          test_dt = nothing;
-                          numruns = 20, numruns_error = 20,
-                          print_names = false, names = nothing, appxsol_setup = nothing,
-                          error_estimate = :final, parallel_type = :none,
-                          kwargs...)
+        test_dt = nothing;
+        numruns = 20, numruns_error = 20,
+        print_names = false, names = nothing, appxsol_setup = nothing,
+        error_estimate = :final, parallel_type = :none,
+        kwargs...)
     @assert names === nothing || length(setups) == length(names)
     timeseries_errors = DiffEqBase.has_analytic(prob.f) &&
                         error_estimate ∈ TIMESERIES_ERRORS
@@ -529,60 +572,63 @@ function WorkPrecisionSet(prob::AbstractRODEProblem, abstols, reltols, setups,
     _solutions_k = [[EnsembleSolution(tmp_solutions[:, j, k], 0.0, true) for j in 1:M]
                     for k in 1:N]
     solutions = [[DiffEqBase.calculate_ensemble_errors(sim;
-                                                       weak_timeseries_errors = weak_timeseries_errors,
-                                                       weak_dense_errors = weak_dense_errors)
+                      weak_timeseries_errors = weak_timeseries_errors,
+                      weak_dense_errors = weak_dense_errors)
                   for sim in sol_k] for sol_k in _solutions_k]
     if error_estimate ∈ WEAK_ERRORS
-        errors = [[solutions[j][i].weak_errors[error_estimate] for i in 1:M] for j in 1:N]
+        errors = [[solutions[j][i].weak_errors for i in 1:M] for j in 1:N]
     else
-        errors = [[solutions[j][i].error_means[error_estimate] for i in 1:M] for j in 1:N]
+        errors = [[solutions[j][i].error_means for i in 1:M] for j in 1:N]
     end
 
     local _sol
 
     # Now time it
+    _abstols = [get(setups[k], :abstols, abstols) for k in 1:N]
+    _reltols = [get(setups[k], :reltols, reltols) for k in 1:N]
+    _dts = [get(setups[k], :dts, zeros(length(_abstols))) for k in 1:N]
     for k in 1:N
         # precompile
         GC.gc()
-        _abstols = get(setups[k], :abstols, abstols)
-        _reltols = get(setups[k], :reltols, reltols)
-        _dts = get(setups[k], :dts, zeros(length(_abstols)))
         filtered_setup = filter(p -> p.first in DiffEqBase.allowedkeywords, setups[k])
 
         _sol = solve(prob, setups[k][:alg];
-                     kwargs..., filtered_setup..., abstol = _abstols[1],
-                     reltol = _reltols[1], dt = _dts[1],
-                     timeseries_errors = false,
-                     dense_errors = false)
+            kwargs..., filtered_setup..., abstol = _abstols[k][1],
+            reltol = _reltols[k][1], dt = _dts[k][1],
+            timeseries_errors = false,
+            dense_errors = false)
         x = isempty(_sol.t) ? 0 : round(Int, mean(_sol.t) - sum(_sol.t) / length(_sol.t))
         GC.gc()
         for j in 1:M
             for i in 1:numruns
                 time_tmp[i] = @elapsed sol = solve(prob, setups[k][:alg];
-                                                   kwargs..., filtered_setup...,
-                                                   abstol = _abstols[j],
-                                                   reltol = _reltols[j], dt = _dts[j],
-                                                   timeseries_errors = false,
-                                                   dense_errors = false)
+                    kwargs..., filtered_setup...,
+                    abstol = _abstols[k][j],
+                    reltol = _reltols[k][j], dt = _dts[k][j],
+                    timeseries_errors = false,
+                    dense_errors = false)
             end
             times[j, k] = mean(time_tmp) + x
             GC.gc()
         end
     end
 
-    wps = [WorkPrecision(prob, abstols, reltols, errors[i], times[:, i], names[i], N)
+    stats = nothing
+    wps = [WorkPrecision(prob, _abstols[i], _reltols[i],
+               StructArray(NamedTuple.(errors[i])),
+               times[:, i], _dts[i], stats, names[i], error_estimate, N)
            for i in 1:N]
     WorkPrecisionSet(wps, N, abstols, reltols, prob, setups, names, error_estimate,
-                     numruns_error)
+        numruns_error)
 end
 
 function WorkPrecisionSet(prob::AbstractEnsembleProblem, abstols, reltols, setups,
-                          test_dt = nothing;
-                          numruns = 5, trajectories = 1000,
-                          print_names = false, names = nothing, appxsol_setup = nothing,
-                          expected_value = nothing,
-                          error_estimate = :weak_final, ensemblealg = EnsembleThreads(),
-                          kwargs...)
+        test_dt = nothing;
+        numruns = 5, trajectories = 1000,
+        print_names = false, names = nothing, appxsol_setup = nothing,
+        expected_value = nothing,
+        error_estimate = :weak_final, ensemblealg = EnsembleThreads(),
+        kwargs...)
     @assert names === nothing || length(setups) == length(names)
 
     weak_timeseries_errors = error_estimate ∈ WEAK_TIMESERIES_ERRORS
@@ -598,21 +644,21 @@ function WorkPrecisionSet(prob::AbstractEnsembleProblem, abstols, reltols, setup
     time_tmp = Vector{Float64}(undef, numruns)
 
     # First calculate all of the errors
+    _abstols = [get(setups[k], :abstols, abstols) for k in 1:N]
+    _reltols = [get(setups[k], :reltols, reltols) for k in 1:N]
+    _dts = [get(setups[k], :dts, zeros(length(_abstols))) for k in 1:N]
     for k in 1:N
-        _abstols = get(setups[k], :abstols, abstols)
-        _reltols = get(setups[k], :reltols, reltols)
-        _dts = get(setups[k], :dts, zeros(length(_abstols)))
         filtered_setup = filter(p -> p.first in DiffEqBase.allowedkeywords, setups[k])
 
         for j in 1:M
             sol = solve(prob, setups[k][:alg], ensemblealg;
-                        filtered_setup...,
-                        abstol = _abstols[j],
-                        reltol = _reltols[j],
-                        dt = _dts[j],
-                        timeseries_errors = false,
-                        dense_errors = false,
-                        trajectories = Int(trajectories), kwargs...)
+                filtered_setup...,
+                abstol = _abstols[k][j],
+                reltol = _reltols[k][j],
+                dt = _dts[k][j],
+                timeseries_errors = false,
+                dense_errors = false,
+                trajectories = Int(trajectories), kwargs...)
             solutions[j, k] = sol
         end
         @info "$(setups[k][:alg]) ($k/$N)"
@@ -632,9 +678,10 @@ function WorkPrecisionSet(prob::AbstractEnsembleProblem, abstols, reltols, setup
                 error("Error estimate $error_estimate is not implemented yet.")
             end
         else
-            sol = solve(prob, appxsol_setup[:alg], ensemblealg; kwargs..., appxsol_setup...,
-                        timeseries_errors = false, dense_errors = false,
-                        trajectories = Int(trajectories))
+            sol = solve(
+                prob, appxsol_setup[:alg], ensemblealg; kwargs..., appxsol_setup...,
+                timeseries_errors = false, dense_errors = false,
+                trajectories = Int(trajectories))
             errors = [[LinearAlgebra.norm(Statistics.mean(solutions[i, j].u .- sol.u))
                        for i in 1:M] for j in 1:N]
         end
@@ -648,49 +695,47 @@ function WorkPrecisionSet(prob::AbstractEnsembleProblem, abstols, reltols, setup
     for k in 1:N
         # precompile
         GC.gc()
-        _abstols = get(setups[k], :abstols, abstols)
-        _reltols = get(setups[k], :reltols, reltols)
-        _dts = get(setups[k], :dts, zeros(length(_abstols)))
         filtered_setup = filter(p -> p.first in DiffEqBase.allowedkeywords, setups[k])
 
         _sol = solve(prob, setups[k][:alg], ensemblealg;
-                     filtered_setup...,
-                     abstol = _abstols[1],
-                     reltol = _reltols[1],
-                     dt = _dts[1],
-                     timeseries_errors = false,
-                     dense_errors = false,
-                     trajectories = Int(trajectories), kwargs...)
+            filtered_setup...,
+            abstol = _abstols[k][1],
+            reltol = _reltols[k][1],
+            dt = _dts[k][1],
+            timeseries_errors = false,
+            dense_errors = false,
+            trajectories = Int(trajectories), kwargs...)
         #x = isempty(_sol.t) ? 0 : round(Int,mean(_sol.t) - sum(_sol.t)/length(_sol.t))
         GC.gc()
         for j in 1:M
             for i in 1:numruns
                 time_tmp[i] = @elapsed sol = solve(prob, setups[k][:alg], ensemblealg;
-                                                   filtered_setup...,
-                                                   abstol = _abstols[j],
-                                                   reltol = _reltols[j],
-                                                   dt = _dts[j],
-                                                   timeseries_errors = false,
-                                                   dense_errors = false,
-                                                   trajectories = Int(trajectories),
-                                                   kwargs...)
+                    filtered_setup...,
+                    abstol = _abstols[k][j],
+                    reltol = _reltols[k][j],
+                    dt = _dts[k][j],
+                    timeseries_errors = false,
+                    dense_errors = false,
+                    trajectories = Int(trajectories),
+                    kwargs...)
             end
             times[j, k] = mean(time_tmp) #+ x
             GC.gc()
         end
     end
-
-    wps = [WorkPrecision(prob, abstols, reltols, errors[i], times[:, i], names[i], N)
+    stats = nothing
+    wps = [WorkPrecision(prob, _abstols[i], _reltols[i], errors[i], times[:, i],
+               _dts[i], stats, names[i], error_estimate, N)
            for i in 1:N]
     WorkPrecisionSet(wps, N, abstols, reltols, prob, setups, names, error_estimate,
-                     Int(trajectories))
+        Int(trajectories))
 end
 
 function WorkPrecisionSet(prob::AbstractBVProblem,
-    abstols, reltols, setups;
-    print_names = false, names = nothing, appxsol = nothing,
-    error_estimate = :final,
-    test_dt = nothing, kwargs...)
+        abstols, reltols, setups;
+        print_names = false, names = nothing, appxsol = nothing,
+        error_estimate = :final,
+        test_dt = nothing, kwargs...)
     N = length(setups)
     @assert names === nothing || length(setups) == length(names)
     wps = Vector{WorkPrecision}(undef, N)
@@ -714,11 +759,11 @@ function WorkPrecisionSet(prob::AbstractBVProblem,
 end
 
 function get_sample_errors(prob::AbstractRODEProblem, setup, test_dt = nothing;
-                           appxsol_setup = nothing,
-                           numruns, error_estimate = :final,
-                           sample_error_runs = Int(1e7),
-                           solution_runs,
-                           parallel_type = :none, kwargs...)
+        appxsol_setup = nothing,
+        numruns, error_estimate = :final,
+        sample_error_runs = Int(1e7),
+        solution_runs,
+        parallel_type = :none, kwargs...)
     maxnumruns = findmax(numruns)[1]
 
     tmp_solutions_full = map(1:solution_runs) do i
@@ -757,22 +802,22 @@ function get_sample_errors(prob::AbstractRODEProblem, setup, test_dt = nothing;
     else
         # Use the mean of the means as the analytical mean
         analytical_mean_end = mean(mean(tmp_solutions[i].u[end]
-                                        for i in 1:length(tmp_solutions))
-                                   for tmp_solutions in tmp_solutions_full)
+                                   for i in 1:length(tmp_solutions))
+        for tmp_solutions in tmp_solutions_full)
     end
 
     if numruns isa Number
         mean_solution_ends = [mean([tmp_solutions[i].u[end] for i in 1:maxnumruns])
                               for tmp_solutions in tmp_solutions_full]
         return sample_error = 1.96std(norm(mean_sol_end - analytical_mean_end)
-                                      for mean_sol_end in mean_solution_ends) /
+        for mean_sol_end in mean_solution_ends) /
                               sqrt(numruns)
     else
         map(1:length(numruns)) do i
             mean_solution_ends = [mean([tmp_solutions[i].u[end] for i in 1:numruns[i]])
                                   for tmp_solutions in tmp_solutions_full]
             sample_error = 1.96std(norm(mean_sol_end - analytical_mean_end)
-                                   for mean_sol_end in mean_solution_ends) /
+            for mean_sol_end in mean_solution_ends) /
                            sqrt(numruns[i])
         end
     end

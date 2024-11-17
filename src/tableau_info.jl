@@ -1,4 +1,3 @@
-using NLsolve, LinearAlgebra, RootedTrees
 """
 `Base.length(tab::ODERKTableau)`
 
@@ -38,8 +37,8 @@ function stability_region(tab::ODERKTableau; initial_guess = -3.0, kw...)
 end
 
 function RootedTrees.residual_order_condition(tab::ODERKTableau, order::Int,
-                                              reducer = nothing, mapper = x -> x^2;
-                                              embedded = false)
+        reducer = nothing, mapper = x -> x^2;
+        embedded = false)
     A, c = tab.A, tab.c
     b = embedded ? tab.αEEst : tab.α
     if reducer === nothing
@@ -48,7 +47,7 @@ function RootedTrees.residual_order_condition(tab::ODERKTableau, order::Int,
         end
     else
         resid = mapreduce(reducer, RootedTreeIterator(order)) do t
-            mapper(residual_order_condition(t, A, b, c))
+            mapper(residual_order_condition(t, RungeKuttaMethod(A, b, c)))
         end
     end
     return resid
@@ -62,9 +61,10 @@ function check_tableau(tab; tol = 10eps(1.0))
         error("Tableau's order is not correct.")
     end
     if tab.adaptiveorder != 0
-        embedded_order = all(i -> residual_order_condition(tab, i, +, abs;
-                                                           embedded = true) < tol,
-                             tab.adaptiveorder)
+        embedded_order = all(
+            i -> residual_order_condition(tab, i, +, abs;
+                embedded = true) < tol,
+            tab.adaptiveorder)
         if !embedded_order
             error("Tableau's embedded order is not correct.")
         end

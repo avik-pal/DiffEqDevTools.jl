@@ -1,6 +1,7 @@
 module DiffEqDevTools
 
-using DiffEqBase, RecipesBase, RecursiveArrayTools, DiffEqNoiseProcess
+using DiffEqBase, RecipesBase, RecursiveArrayTools, DiffEqNoiseProcess, StructArrays
+using NLsolve, LinearAlgebra, RootedTrees
 
 using LinearAlgebra, Distributed
 
@@ -11,7 +12,8 @@ import Base: length
 import DiffEqBase: AbstractODEProblem, AbstractDDEProblem, AbstractDDEAlgorithm,
                    AbstractODESolution, AbstractRODEProblem, AbstractSDEProblem,
                    AbstractSDDEProblem, AbstractEnsembleProblem,
-                   AbstractDAEProblem, AbstractBVProblem, @def, ConvergenceSetup, DEAlgorithm,
+                   AbstractDAEProblem, AbstractBVProblem, @def, ConvergenceSetup,
+                   DEAlgorithm,
                    ODERKTableau, AbstractTimeseriesSolution, ExplicitRKTableau,
                    ImplicitRKTableau
 
@@ -22,7 +24,9 @@ const DENSE_ERRORS = Set([:L2, :L∞])
 const WEAK_TIMESERIES_ERRORS = Set([:weak_l2, :weak_l∞])
 const WEAK_DENSE_ERRORS = Set([:weak_L2, :weak_L∞])
 const WEAK_ERRORS = union(Set([:weak_final]),
-                          WEAK_TIMESERIES_ERRORS, WEAK_DENSE_ERRORS)
+    WEAK_TIMESERIES_ERRORS, WEAK_DENSE_ERRORS)
+const ALL_ERRORS = union([:final],
+    TIMESERIES_ERRORS, DENSE_ERRORS, WEAK_TIMESERIES_ERRORS, WEAK_DENSE_ERRORS, WEAK_ERRORS)
 
 include("benchmark.jl")
 include("convergence.jl")
